@@ -56,6 +56,7 @@
     }
   }
   *{box-sizing:border-box;}
+  [hidden]{display:none !important;}
   @media (prefers-reduced-motion: reduce){
     *{transition:none !important; animation:none !important;}
   }
@@ -223,9 +224,38 @@
 
   .muted{color:var(--ink-400);}
   .foot-note{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-400);}
+
+  .gate{
+    position:fixed;inset:0;background:var(--paper);z-index:50;
+    display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .gate-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:28px;width:100%;max-width:360px;
+  }
+  .gate-eyebrow{
+    font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--blueprint-600);margin:0 0 6px;
+  }
+  .gate-title{font-family:var(--font-display);font-weight:800;font-size:20px;margin:0 0 16px;}
+  .gate-input{
+    width:100%;border:1px solid var(--line);border-radius:7px;padding:10px 12px;font-size:14px;margin-bottom:10px;
+  }
+  .gate-input:focus{outline:2px solid var(--blueprint-600);outline-offset:1px;}
+  .gate-error{color:var(--red-600);font-size:12.5px;margin:8px 0 0;min-height:16px;}
 </style>
 </head>
 <body>
+<div class="gate" id="gate" hidden>
+  <form class="gate-card" id="gateForm">
+    <p class="gate-eyebrow">Super Design Lab</p>
+    <h1 class="gate-title">Print Lab Ad Console</h1>
+    <input class="gate-input" id="gatePassword" type="password" placeholder="Team password" autocomplete="current-password" />
+    <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;">Unlock</button>
+    <p class="gate-error" id="gateError"></p>
+  </form>
+</div>
+
 <div class="wrap">
   <header class="console-header">
     <div>
@@ -299,14 +329,14 @@
     </div>
   </section>
 
-  <p class="foot-note" id="footNote">Destination for every ad is the studio&rsquo;s own site &mdash; swap in your live custom domain once it replaces the Vercel preview URL. KPI numbers here are entered by hand from Instagram Ads Manager; nothing is pulled automatically. Data refreshes about every 20 seconds and whenever this tab regains focus.</p>
+  <p class="foot-note" id="footNote">Destination for every ad is the studio&rsquo;s own site &mdash; swap in your live custom domain once it replaces the Vercel preview URL. KPI numbers here are entered by hand from Instagram Ads Manager; nothing is pulled automatically. Edits save as soon as you click out of a field, and the page refreshes every 5 minutes or whenever this tab regains focus.</p>
 </div>
 
 <script>
 (function(){
   var SITE_URL = "https://superdesignlab-editorial.vercel.app";
-  var POLL_MS = 20000;
-  var state = { weeks:[], selectedWeekId:null, ads:[], meta:{isExample:false}, initialized:false };
+  var POLL_MS = 300000;
+  var state = { weeks:[], selectedWeekId:null, ads:[], meta:{isExample:false}, initialized:false, activeTab:'ads' };
 
   function pad(n){return n<10?'0'+n:''+n;}
   function isoDate(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
@@ -333,7 +363,15 @@
     var body = opts.body;
     if (body !== undefined){ headers['Content-Type']='application/json'; body = JSON.stringify(body); }
     return fetch('/api'+path, { method: opts.method||'GET', headers: headers, body: body })
-      .then(function(r){ if(!r.ok) return r.json().then(function(e){throw new Error(e.error||r.statusText);}); return r.json(); });
+      .then(function(r){
+        if (r.status === 401){ showGate(); var err = new Error('unauthorized'); err.unauthorized = true; throw err; }
+        if (!r.ok) return r.text().then(function(t){
+          var msg = r.statusText;
+          try { msg = JSON.parse(t).error || msg; } catch(e){ if (r.status === 500) msg = 'the database is not connected yet'; }
+          throw new Error(msg);
+        });
+        return r.json();
+      });
   }
   var Api = {
     getMeta: function(){ return api('/meta'); },
@@ -435,7 +473,8 @@
     state.weeks = weeks;
     renderWeekSelect();
     renderResumeNotesField();
-    renderTrend();
+    // The trend reads every week's ads, so only build it while that tab is open.
+    if (state.activeTab === 'resume') renderTrend();
     if (!state.initialized && state.selectedWeekId){
       state.initialized = true;
       document.getElementById('weekSelect').value = state.selectedWeekId;
@@ -708,9 +747,11 @@
         document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
         btn.classList.add('active');
         var tab = btn.getAttribute('data-tab');
+        state.activeTab = tab;
         ['ads','kpi','resume'].forEach(function(t){
           document.getElementById('tab-'+t).hidden = (t!==tab);
         });
+        if (tab === 'resume') renderTrend();
       });
     });
     document.getElementById('weekSelect').addEventListener('change', function(e){ selectWeek(e.target.value); });
@@ -731,24 +772,64 @@
     });
   }
 
-  async function init(){
-    setupTabs();
+  // ---------- password gate ----------
+  function showGate(){
+    document.getElementById('gate').hidden = false;
+    var input = document.getElementById('gatePassword');
+    if (input) input.focus();
+  }
+  function hideGate(){ document.getElementById('gate').hidden = true; }
+
+  function setupGate(){
+    document.getElementById('gateForm').addEventListener('submit', function(e){
+      e.preventDefault();
+      var input = document.getElementById('gatePassword');
+      var errEl = document.getElementById('gateError');
+      errEl.textContent = '';
+      fetch('/api/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({password: input.value})
+      }).then(function(r){
+        if (r.ok){
+          input.value = '';
+          hideGate();
+          start();
+          return;
+        }
+        return r.json().then(function(d){ errEl.textContent = d.error || 'Could not sign in.'; });
+      }).catch(function(){ errEl.textContent = 'Network error. Try again.'; });
+    });
+  }
+
+  var started = false;
+  async function start(){
     try {
       await ensureSeed();
       await loadWeeks();
     } catch(e){
+      if (e && e.unauthorized) return;
       console.error(e);
       document.querySelector('.wrap').insertAdjacentHTML('afterbegin',
         '<div class="banner" style="border-color:var(--red-600);background:var(--red-100);"><span><strong>Could not reach the database.</strong> Check that the KV/Redis integration is connected in this project’s Vercel settings. ('+escapeHtml(e.message)+')</span></div>');
     }
-    setInterval(function(){
-      loadWeeks();
-      if (state.selectedWeekId) loadAds(state.selectedWeekId);
-    }, POLL_MS);
-    window.addEventListener('focus', function(){
-      loadWeeks();
-      if (state.selectedWeekId) loadAds(state.selectedWeekId);
-    });
+    if (started) return;
+    started = true;
+    var refresh = function(){
+      if (document.getElementById('gate').hidden === false) return;
+      loadWeeks().catch(function(){});
+      if (state.selectedWeekId) loadAds(state.selectedWeekId).catch(function(){});
+    };
+    setInterval(refresh, POLL_MS);
+    window.addEventListener('focus', refresh);
+  }
+
+  async function init(){
+    setupTabs();
+    setupGate();
+    var session = { authed:false };
+    try { session = await fetch('/api/login').then(function(r){return r.json();}); } catch(e){}
+    if (!session.authed){ showGate(); return; }
+    await start();
   }
   init();
 })();

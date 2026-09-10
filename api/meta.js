@@ -1,6 +1,9 @@
 const { kv } = require('@vercel/kv');
+const { requireAuth } = require('../lib/auth');
 
 module.exports = async function handler(req, res) {
+  if (!requireAuth(req, res)) return;
+
   if (req.method === 'GET') {
     const meta = (await kv.get('meta')) || { seeded: false, isExample: false };
     res.status(200).json(meta);

@@ -1,6 +1,9 @@
 const { kv } = require('@vercel/kv');
+const { requireAuth } = require('../../lib/auth');
 
 module.exports = async function handler(req, res) {
+  if (!requireAuth(req, res)) return;
+
   const { id } = req.query;
 
   if (req.method === 'PATCH') {

@@ -1,6 +1,9 @@
 const { kv } = require('@vercel/kv');
+const { requireAuth } = require('../../../../lib/auth');
 
 module.exports = async function handler(req, res) {
+  if (!requireAuth(req, res)) return;
+
   const { id, adId } = req.query;
   const key = 'ads:' + id;
 

@@ -1,6 +1,9 @@
 const { kv } = require('@vercel/kv');
+const { requireAuth } = require('../../lib/auth');
 
 module.exports = async function handler(req, res) {
+  if (!requireAuth(req, res)) return;
+
   if (req.method === 'GET') {
     const raw = (await kv.hgetall('weeks')) || {};
     const weeks = Object.entries(raw).map(([id, val]) => {
